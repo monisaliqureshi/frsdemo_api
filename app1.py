@@ -134,7 +134,7 @@ async def search_face(file: UploadFile = File(...)):
         rows = await conn.fetch("SELECT face_id, features FROM faces;")
         for row in rows:
             stored_features = np.frombuffer(row["features"], dtype=np.float32)
-            similarity, matched = recognizer.match(features, stored_features)
+            similarity, matched = recognizer.n_match_norml2(features, stored_features)
             if matched:
                 return {"matched_face_id": row["face_id"], "similarity_score": similarity}
         return {"message": "No match found."}
