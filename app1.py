@@ -69,7 +69,7 @@ def detect_face(image):
 def extract_features(image, face):
     x, y, w, h = face[:4].astype(int)
     cropped_face = image[y:y+h, x:x+w]
-    features = recognizer.feature(cropped_face)  # Ensure `feature` is the correct method
+    features = recognizer.infer(cropped_face)  # Ensure `feature` is the correct method
     return features
 
 def convert_byte_to_numpy(content):
