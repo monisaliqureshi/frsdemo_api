@@ -1,0 +1,12 @@
+opencv-python-headless
+numpy
+cmake
+dlib==19.19.0
+pillow
+face_recognition
+fastapi[all]
+fastapi_jwt_auth
+sqlalchemy==2.0.21
+gunicorn
+requests
+psycopg2-binary
