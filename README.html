@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Examples for KYC Solution API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            color: #333;
+            background-color: #f4f4f9;
+            padding: 20px;
+            max-width: 900px;
+            margin: auto;
+        }
+        h2 {
+            color: #007acc;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 5px;
+            margin-top: 20px;
+        }
+        h3 {
+            color: #007acc;
+            margin-bottom: 10px;
+        }
+        .example {
+            background-color: #f9f9f9;
+            border-left: 5px solid #007acc;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            position: relative;
+        }
+        pre {
+            background-color: #e8e8e8;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.9em;
+            position: relative;
+            margin-top: 5px;
+            white-space: pre-wrap;
+        }
+        code {
+            display: block;
+            color: #d63384;
+        }
+        .copy-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #007acc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+    </style>
+    <script>
+        function copyToClipboard(codeId) {
+            const code = document.getElementById(codeId).innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                alert("Code copied to clipboard!");
+            });
+        }
+    </script>
+</head>
+<body>
+
+    <h2>Client Examples</h2>
+
+    <div class="example">
+        <h3>ReactJS</h3>
+        <button class="copy-button" onclick="copyToClipboard('reactjs-code')">Copy</button>
+        <pre id="reactjs-code"><code>import React, { useState } from 'react';
+import axios from 'axios';
+
+function App() {
+  const [passport, setPassport] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const handlePassportChange = (e) => setPassport(e.target.files[0]);
+  const handleProfileChange = (e) => setProfile(e.target.files[0]);
+
+  const verifyFaces = async () => {
+    const formData = new FormData();
+    formData.append('passport_file', passport);
+    formData.append('profile_file', profile);
+
+    try {
+      const response = await axios.post('http://127.0.0.1:8000/verify_both_faces', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setResult(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;KYC Solution Verification&lt;/h1&gt;
+      &lt;input type="file" onChange={handlePassportChange} /&gt;
+      &lt;input type="file" onChange={handleProfileChange} /&gt;
+      &lt;button onClick={verifyFaces}&gt;Verify&lt;/button&gt;
+      {result && &lt;pre&gt;{JSON.stringify(result, null, 2)}&lt;/pre&gt;}
+    &lt;/div&gt;
+  );
+}
+
+export default App;</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>Node.js</h3>
+        <button class="copy-button" onclick="copyToClipboard('nodejs-code')">Copy</button>
+        <pre id="nodejs-code"><code>const axios = require('axios');
+const fs = require('fs');
+
+async function verifyFaces() {
+  const formData = new FormData();
+  formData.append('passport_file', fs.createReadStream('path/to/passport.jpg'));
+  formData.append('profile_file', fs.createReadStream('path/to/profile.jpg'));
+
+  try {
+    const response = await axios.post('http://127.0.0.1:8000/verify_both_faces', formData, {
+      headers: formData.getHeaders()
+    });
+    console.log('Verification Result:', response.data);
+  } catch (error) {
+    console.error('Error verifying faces:', error);
+  }
+}
+
+verifyFaces();</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>TypeScript</h3>
+        <button class="copy-button" onclick="copyToClipboard('typescript-code')">Copy</button>
+        <pre id="typescript-code"><code>import axios, { AxiosResponse } from 'axios';
+
+async function verifyFaces(passportFile: File, profileFile: File): Promise&lt;void&gt; {
+  const formData = new FormData();
+  formData.append('passport_file', passportFile);
+  formData.append('profile_file', profileFile);
+
+  try {
+    const response: AxiosResponse = await axios.post('http://127.0.0.1:8000/verify_both_faces', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    console.log('Verification Result:', response.data);
+  } catch (error) {
+    console.error('Error verifying faces:', error);
+  }
+}</code></pre>
+    </div>
+
+    <div class="example">
+        <h3>React Native</h3>
+        <button class="copy-button" onclick="copyToClipboard('reactnative-code')">Copy</button>
+        <pre id="reactnative-code"><code>import React, { useState } from 'react';
+import { View, Button, Text } from 'react-native';
+import axios from 'axios';
+import * as ImagePicker from 'react-native-image-picker';
+
+export default function App() {
+  const [result, setResult] = useState(null);
+
+  const pickImage = async (setter) => {
+    ImagePicker.launchImageLibrary({}, (response) => {
+      if (response.assets) {
+        setter(response.assets[0].uri);
+      }
+    });
+  };
+
+  const verifyFaces = async (passportUri, profileUri) => {
+    const formData = new FormData();
+    formData.append('passport_file', {
+      uri: passportUri,
+      name: 'passport.jpg',
+      type: 'image/jpeg',
+    });
+    formData.append('profile_file', {
+      uri: profileUri,
+      name: 'profile.jpg',
+      type: 'image/jpeg',
+    });
+
+    try {
+      const response = await axios.post('http://127.0.0.1:8000/verify_both_faces', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setResult(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  return (
+    &lt;View&gt;
+      &lt;Button title="Pick Passport Image" onPress={() => pickImage(setPassport)} /&gt;
+      &lt;Button title="Pick Profile Image" onPress={() => pickImage(setProfile)} /&gt;
+      &lt;Button title="Verify Faces" onPress={() => verifyFaces(passport, profile)} /&gt;
+      {result && &lt;Text&gt;{JSON.stringify(result, null, 2)}&lt;/Text&gt;}
+    &lt;/View&gt;
+  );
+}</code></pre>
+    </div>
+
+</body>
+</html>
