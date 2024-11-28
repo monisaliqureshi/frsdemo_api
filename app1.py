@@ -153,8 +153,8 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     
     features1 = extract_features(image1, face1)
     features2 = extract_features(image2, face2)
-    similarity, matched = recognizer.match(features1, features2)
-    return {"matched": matched, "similarity_score": similarity}
+    matched = recognizer.match(image1, face1, image2, face2)
+    return {"matched": matched}
 
 if __name__ == "__main__":
     uvicorn.run(app=app, host="127.0.0.1", port=8000)
