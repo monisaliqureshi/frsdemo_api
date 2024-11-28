@@ -32,7 +32,7 @@ app = FastAPI(title="Face Management System with PostgreSQL")
 
 # Database connection pool
 pool = None
-DATABASE_URL = os.getenv("DATABASE_URL", "your_database_url_here")  # Replace or set as an environment variable
+DATABASE_URL = "postgresql://monisaliqureshi:IEwi8B7ZaAfH@ep-wispy-night-a5bp95el.us-east-2.aws.neon.tech/frsapi?sslmode=require"  # Replace with your Neon connection string
 
 async def init_db():
     """Initialize the database."""
