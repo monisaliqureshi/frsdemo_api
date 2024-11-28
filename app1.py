@@ -5,6 +5,7 @@ from yunet import YuNet
 from fastapi import FastAPI, File, UploadFile
 import base64
 import asyncpg
+import os
 import uvicorn
 
 # Define backend and target
@@ -29,26 +30,34 @@ detector = YuNet(modelPath='ai_models/face_detection_yunet_2023mar.onnx',
 # Initialize FastAPI app
 app = FastAPI(title="Face Management System with PostgreSQL")
 
-# PostgreSQL database connection parameters
-DATABASE_URL = "postgresql://monisaliqureshi:IEwi8B7ZaAfH@ep-wispy-night-a5bp95el.us-east-2.aws.neon.tech/frsapi?sslmode=require"  # Replace with your Neon connection string
+# Database connection pool
+pool = None
+DATABASE_URL = os.getenv("DATABASE_URL", "your_database_url_here")  # Replace or set as an environment variable
 
 async def init_db():
     """Initialize the database."""
-    conn = await asyncpg.connect(DATABASE_URL)
-    await conn.execute("""
-        CREATE TABLE IF NOT EXISTS faces (
-            id SERIAL PRIMARY KEY,
-            face_id TEXT UNIQUE NOT NULL,
-            features BYTEA NOT NULL,
-            image BYTEA NOT NULL
-        );
-    """)
-    await conn.close()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS faces (
+                id SERIAL PRIMARY KEY,
+                face_id TEXT UNIQUE NOT NULL,
+                features BYTEA NOT NULL,
+                image BYTEA NOT NULL
+            );
+        """)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database at startup."""
+    """Initialize the connection pool and database."""
+    global pool
+    pool = await asyncpg.create_pool(DATABASE_URL)
     await init_db()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close the connection pool."""
+    if pool:
+        await pool.close()
 
 def detect_face(image):
     detector.setInputSize([image.shape[1], image.shape[0]])
@@ -60,7 +69,7 @@ def detect_face(image):
 def extract_features(image, face):
     x, y, w, h = face[:4].astype(int)
     cropped_face = image[y:y+h, x:x+w]
-    features = recognizer.feature(cropped_face)
+    features = recognizer.feature(cropped_face)  # Ensure `feature` is the correct method
     return features
 
 def convert_byte_to_numpy(content):
@@ -77,7 +86,7 @@ async def enroll_face(face_id: str, file: UploadFile = File(...)):
         return {"error": "No valid face detected or multiple faces found."}
     
     features = extract_features(image, face)
-    async with asyncpg.connect(DATABASE_URL) as conn:
+    async with pool.acquire() as conn:
         try:
             await conn.execute(
                 "INSERT INTO faces (face_id, features, image) VALUES ($1, $2, $3);",
@@ -91,13 +100,13 @@ async def enroll_face(face_id: str, file: UploadFile = File(...)):
 
 @app.get("/view_enrolled_faces")
 async def view_enrolled_faces():
-    async with asyncpg.connect(DATABASE_URL) as conn:
+    async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT face_id FROM faces;")
         return {"enrolled_faces": [row["face_id"] for row in rows]}
 
 @app.get("/view_enrolled_face/{face_id}")
 async def view_enrolled_face(face_id: str):
-    async with asyncpg.connect(DATABASE_URL) as conn:
+    async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT image FROM faces WHERE face_id = $1;", face_id)
         if not row:
             return {"error": f"Face with ID '{face_id}' not found."}
@@ -106,7 +115,7 @@ async def view_enrolled_face(face_id: str):
 
 @app.delete("/delete_face/{face_id}")
 async def delete_face(face_id: str):
-    async with asyncpg.connect(DATABASE_URL) as conn:
+    async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM faces WHERE face_id = $1;", face_id)
         if result == "DELETE 0":
             return {"error": f"Face with ID '{face_id}' not found."}
@@ -121,7 +130,7 @@ async def search_face(file: UploadFile = File(...)):
         return {"error": "No valid face detected or multiple faces found."}
     
     features = extract_features(image, face)
-    async with asyncpg.connect(DATABASE_URL) as conn:
+    async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT face_id, features FROM faces;")
         for row in rows:
             stored_features = np.frombuffer(row["features"], dtype=np.float32)
