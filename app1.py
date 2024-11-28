@@ -153,7 +153,7 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     
     features1 = extract_features(image1, face1)
     features2 = extract_features(image2, face2)
-    matched = recognizer.match(image1, face1, image2, face2)
+    _, matched = recognizer.match(image1, face1, image2, face2)
     return {"matched": matched}
 
 if __name__ == "__main__":
