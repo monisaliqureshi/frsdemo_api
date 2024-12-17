@@ -9,6 +9,19 @@ import os
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 
+from datetime import datetime
+
+async def log_action(action: str, status: str):
+    """Insert a log into the database."""
+    now = datetime.now()
+    date = now.strftime("%Y-%m-%d")
+    time = now.strftime("%H:%M:%S")
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO logs (date, time, action, status) VALUES ($1, $2, $3, $4);",
+            date, time, action, status
+        )
+
 
 # Define backend and target
 backend_id = cv.dnn.DNN_BACKEND_OPENCV
@@ -58,6 +71,14 @@ async def init_db():
                 face_id TEXT UNIQUE NOT NULL,
                 features BYTEA NOT NULL,
                 image BYTEA NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS logs (
+                log_id SERIAL PRIMARY KEY,
+                date TEXT NOT NULL,
+                time TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL
             );
         """)
 
@@ -109,15 +130,42 @@ async def enroll_face(face_id: str, file: UploadFile = File(...)):
                 features.tobytes(),
                 content
             )
+            await log_action("enroll", "success")
             return {"message": f"Face with ID '{face_id}' successfully enrolled."}
         except asyncpg.UniqueViolationError:
+            await log_action("enroll", "error")
             return {"error": f"Face with ID '{face_id}' already exists."}
 
 @app.get("/view_enrolled_faces")
-async def view_enrolled_faces():
+async def view_enrolled_faces(page: int = 1, limit: int = 10):
+    """
+    Retrieve enrolled faces and their images with pagination.
+    - `page`: Page number (default = 1).
+    - `limit`: Number of faces per page (default = 10).
+    """
+    offset = (page - 1) * limit
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT face_id FROM faces;")
-        return {"enrolled_faces": [row["face_id"] for row in rows]}
+        rows = await conn.fetch(
+            "SELECT face_id, image FROM faces ORDER BY id ASC LIMIT $1 OFFSET $2;", 
+            limit, offset
+        )
+        total = await conn.fetchval("SELECT COUNT(*) FROM faces;")
+    
+    # Encode images to base64
+    faces = [
+        {
+            "face_id": row["face_id"],
+            "image_base64": base64.b64encode(row["image"]).decode("utf-8")
+        }
+        for row in rows
+    ]
+    
+    return {
+        "page": page,
+        "limit": limit,
+        "total_faces": total,
+        "faces": faces
+    }
 
 @app.get("/view_enrolled_face/{face_id}")
 async def view_enrolled_face(face_id: str):
@@ -133,7 +181,9 @@ async def delete_face(face_id: str):
     async with pool.acquire() as conn:
         result = await conn.execute("DELETE FROM faces WHERE face_id = $1;", face_id)
         if result == "DELETE 0":
+            await log_action("delete", "error")
             return {"error": f"Face with ID '{face_id}' not found."}
+        await log_action("delete", "success")
         return {"message": f"Face with ID '{face_id}' successfully deleted."}
 
 @app.post("/search_face")
@@ -142,6 +192,7 @@ async def search_face(file: UploadFile = File(...)):
     image = convert_byte_to_numpy(content)
     face, has_face = detect_face(image)
     if not has_face:
+        await log_action("search", "error")
         return {"error": "No valid face detected or multiple faces found."}
     
     features = extract_features(image, face)
@@ -152,7 +203,9 @@ async def search_face(file: UploadFile = File(...)):
             match_list, conf_list = recognizer.n_match_norml2(features, stored_features)
             index = np.argmax(match_list)
             if match_list[index]:
+                await log_action("search", "matched")
                 return {"matched_face_id": row["face_id"], "confidence": conf_list[index]*100}
+        await log_action("search", "not matched")
         return {"message": "No match found."}
 
 @app.post("/verify_faces")
@@ -164,12 +217,36 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     face1, has_face1 = detect_face(image1)
     face2, has_face2 = detect_face(image2)
     if not (has_face1 and has_face2):
+        await log_action("verify", "error")
         return {"error": "Both images must contain exactly one valid face."}
     
     features1 = extract_features(image1, face1)
     features2 = extract_features(image2, face2)
     score, matched = recognizer.match(image1, face1, image2, face2)
+    status = "matched" if matched else "not matched"
+    await log_action("verify", status)
     return {"matched": matched, "confidence": score*100}
+
+@app.get("/logs")
+async def get_logs(page: int = 1, limit: int = 10):
+    """
+    Retrieve logs with pagination.
+    - `page`: Page number (default = 1).
+    - `limit`: Number of logs per page (default = 10).
+    """
+    offset = (page - 1) * limit
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM logs ORDER BY log_id DESC LIMIT $1 OFFSET $2;", 
+            limit, offset
+        )
+        total = await conn.fetchval("SELECT COUNT(*) FROM logs;")
+    return {
+        "page": page,
+        "limit": limit,
+        "total_logs": total,
+        "logs": [dict(row) for row in rows]
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app=app, host="0.0.0.0", port=8000)
