@@ -11,17 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from datetime import datetime
 
-async def log_action(action: str, status: str):
-    """Insert a log into the database."""
-    now = datetime.now()
-    date = now.strftime("%Y-%m-%d")
-    time = now.strftime("%H:%M:%S")
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO logs (date, time, action, status) VALUES ($1, $2, $3, $4);",
-            date, time, action, status
-        )
-
 
 # Define backend and target
 backend_id = cv.dnn.DNN_BACKEND_OPENCV
@@ -247,6 +236,58 @@ async def get_logs(page: int = 1, limit: int = 10):
         "total_logs": total,
         "logs": [dict(row) for row in rows]
     }
+    
+@app.get("/logs/data/action_frequency")
+async def action_frequency():
+    """
+    Get the frequency of each action in logs.
+    """
+    query = """
+        SELECT action, COUNT(*) AS count
+        FROM logs
+        GROUP BY action
+        ORDER BY count DESC;
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query)
+    data = [{"action": row["action"], "count": row["count"]} for row in rows]
+    return {"action_frequency": data}
+
+
+@app.get("/logs/data/status_distribution")
+async def status_distribution():
+    """
+    Get the distribution of statuses in logs.
+    """
+    query = """
+        SELECT status, COUNT(*) AS count
+        FROM logs
+        GROUP BY status
+        ORDER BY count DESC;
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query)
+    data = [{"status": row["status"], "count": row["count"]} for row in rows]
+    return {"status_distribution": data}
+
+
+@app.get("/logs/data/actions_over_time")
+async def actions_over_time():
+    """
+    Get the number of actions logged per date.
+    """
+    query = """
+        SELECT date, COUNT(*) AS count
+        FROM logs
+        GROUP BY date
+        ORDER BY date ASC;
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query)
+    data = [{"date": str(row["date"]), "count": row["count"]} for row in rows]
+    return {"actions_over_time": data}
+
+
 
 if __name__ == "__main__":
     uvicorn.run(app=app, host="0.0.0.0", port=8000)
