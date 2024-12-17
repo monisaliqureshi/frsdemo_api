@@ -11,6 +11,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from datetime import datetime
 
+async def log_action(action: str, status: str):
+    """Log an action to the database."""
+    now = datetime.now()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO logs (date, time, action, status) VALUES ($1, $2, $3, $4);",
+            now.date(), now.time(), action, status
+        )
+
 
 # Define backend and target
 backend_id = cv.dnn.DNN_BACKEND_OPENCV
