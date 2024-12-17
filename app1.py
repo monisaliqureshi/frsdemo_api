@@ -7,6 +7,8 @@ import base64
 import asyncpg
 import os
 import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # Define backend and target
 backend_id = cv.dnn.DNN_BACKEND_OPENCV
@@ -29,6 +31,19 @@ detector = YuNet(modelPath='ai_models/face_detection_yunet_2023mar.onnx',
 
 # Initialize FastAPI app
 app = FastAPI(title="Face Management System with PostgreSQL")
+
+
+origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 
 # Database connection pool
 pool = None
@@ -134,10 +149,10 @@ async def search_face(file: UploadFile = File(...)):
         rows = await conn.fetch("SELECT face_id, features FROM faces;")
         for row in rows:
             stored_features = np.frombuffer(row["features"], dtype=np.float32)
-            match_list = recognizer.n_match_norml2(features, stored_features)
+            match_list, conf_list = recognizer.n_match_norml2(features, stored_features)
             index = np.argmax(match_list)
             if match_list[index]:
-                return {"matched_face_id": row["face_id"]}
+                return {"matched_face_id": row["face_id"], "confidence": conf_list[index]*100}
         return {"message": "No match found."}
 
 @app.post("/verify_faces")
@@ -153,8 +168,8 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     
     features1 = extract_features(image1, face1)
     features2 = extract_features(image2, face2)
-    _, matched = recognizer.match(image1, face1, image2, face2)
-    return {"matched": matched}
+    score, matched = recognizer.match(image1, face1, image2, face2)
+    return {"matched": matched, "confidence": score*100}
 
 if __name__ == "__main__":
     uvicorn.run(app=app, host="0.0.0.0", port=8000)

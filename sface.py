@@ -43,7 +43,11 @@ class SFace:
             return image
         else:
             return self._model.alignCrop(image, bbox)
-
+    def get_confidence_score(self, distance, threshold):
+        if distance <= threshold:
+            return 1 - (distance / threshold)
+        else:
+            return 0
     def infer(self, image, bbox=None):
         # Preprocess
         inputBlob = self._preprocess(image, bbox)
@@ -61,7 +65,7 @@ class SFace:
             return cosine_score, True if cosine_score >= self._threshold_cosine else False
         else: # NORM_L2
             norml2_distance = self._model.match(feature1, feature2, self._disType)
-            return norml2_distance, True if norml2_distance <= self._threshold_norml2 else False
+            return self.get_confidence_score(norml2_distance, self._threshold_norml2), True if norml2_distance <= self._threshold_norml2 else False
         
     def n_match_cosine(self, features, feature):
         match_list = []
@@ -77,9 +81,12 @@ class SFace:
         
         """
         match_list = []
+        confidence_list = []
         for fea in features:
             norml2_score = self._model.match(feature, fea, 1)
+            confidence = self.get_confidence_score(norml2_score, self._threshold_norml2)
             res = True if norml2_score <= self._threshold_norml2 else False
             match_list.append(res)
-        return match_list
+            confidence_list.append(confidence)
+        return match_list, confidence_list
     
