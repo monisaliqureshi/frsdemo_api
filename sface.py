@@ -6,8 +6,8 @@
 
 import cv2 as cv
 
-class SFace:
-    def __init__(self, modelPath, disType=0, backendId=0, targetId=0):
+class SFace: 
+    def __init__(self, modelPath, disType=1, backendId=0, targetId=0):
         self._modelPath = modelPath
         self._backendId = backendId
         self._targetId = targetId
@@ -22,7 +22,7 @@ class SFace:
 
         self._threshold_cosine = 0.363
         # self._threshold_norml2 = 1.128
-        self._threshold_norml2 = 0.92
+        self._threshold_norml2 = 0.95
         # self._threshold_norml2 = 1.15
 
     @property

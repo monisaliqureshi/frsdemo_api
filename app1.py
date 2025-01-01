@@ -14,11 +14,14 @@ from datetime import datetime
 async def log_action(action: str, status: str):
     """Log an action to the database."""
     now = datetime.now()
+    date = now.strftime("%Y-%m-%d")  # Convert date to string
+    time = now.strftime("%H:%M:%S")  # Convert time to string
     async with pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO logs (date, time, action, status) VALUES ($1, $2, $3, $4);",
-            now.date(), now.time(), action, status
+            date, time, action, status
         )
+
 
 
 # Define backend and target
@@ -58,7 +61,7 @@ app.add_middleware(
 
 # Database connection pool
 pool = None
-DATABASE_URL = "postgresql://monisaliqureshi:IEwi8B7ZaAfH@ep-wispy-night-a5bp95el.us-east-2.aws.neon.tech/frsapi?sslmode=require"  # Replace with your Neon connection string
+DATABASE_URL = "postgresql://monisaliqureshi:IEwi8B7ZaAfH@ep-plain-haze-a5etdywp.us-east-2.aws.neon.tech/frs_facehawk?sslmode=require"  # Replace with your Neon connection string
 
 async def init_db():
     """Initialize the database."""
@@ -68,7 +71,11 @@ async def init_db():
                 id SERIAL PRIMARY KEY,
                 face_id TEXT UNIQUE NOT NULL,
                 features BYTEA NOT NULL,
-                image BYTEA NOT NULL
+                image BYTEA NOT NULL,
+                dob DATE NOT NULL,
+                gender TEXT NOT NULL,
+                date TEXT NOT NULL,
+                time TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS logs (
@@ -79,6 +86,7 @@ async def init_db():
                 status TEXT NOT NULL
             );
         """)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -111,48 +119,82 @@ def convert_byte_to_numpy(content):
     image = cv.imdecode(nparr, cv.IMREAD_COLOR)
     return image
 
+from datetime import datetime
+
 @app.post("/enroll_face")
-async def enroll_face(face_id: str, file: UploadFile = File(...)):
+async def enroll_face(
+    face_id: str,
+    dob: str,
+    gender: str,
+    file: UploadFile = File(...)
+):
+    """Enroll a new face with additional details."""
+    try:
+        # Convert dob to a datetime.date object
+        dob_date = datetime.strptime(dob, "%Y-%m-%d").date()
+    except ValueError:
+        return {"error": "Invalid date format for 'dob'. Please use 'YYYY-MM-DD'."}
+
+    now = datetime.now()
+    date = now.strftime("%Y-%m-%d")  # Current date
+    time = now.strftime("%H:%M:%S")  # Current time
+
     content = await file.read()
     image = convert_byte_to_numpy(content)
     face, has_face = detect_face(image)
     if not has_face:
         return {"error": "No valid face detected or multiple faces found."}
     
-    features = extract_features(image, face)
+    features = recognizer.infer(image, face)
     async with pool.acquire() as conn:
         try:
             await conn.execute(
-                "INSERT INTO faces (face_id, features, image) VALUES ($1, $2, $3);",
+                """
+                INSERT INTO faces (face_id, features, image, dob, gender, date, time)
+                VALUES ($1, $2, $3, $4, $5, $6, $7);
+                """,
                 face_id,
                 features.tobytes(),
-                content
+                content,
+                dob_date,  # Pass the converted datetime.date object
+                gender,
+                date,
+                time
             )
-            await log_action("enroll", "success")
             return {"message": f"Face with ID '{face_id}' successfully enrolled."}
         except asyncpg.UniqueViolationError:
-            await log_action("enroll", "error")
             return {"error": f"Face with ID '{face_id}' already exists."}
 
 @app.get("/view_enrolled_faces")
 async def view_enrolled_faces(page: int = 1, limit: int = 10):
     """
-    Retrieve enrolled faces and their images with pagination.
+    Retrieve enrolled faces with pagination, returning age instead of dob.
     - `page`: Page number (default = 1).
     - `limit`: Number of faces per page (default = 10).
     """
     offset = (page - 1) * limit
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT face_id, image FROM faces ORDER BY id ASC LIMIT $1 OFFSET $2;", 
+            """
+            SELECT face_id, image, dob, gender, date, time 
+            FROM faces ORDER BY id ASC LIMIT $1 OFFSET $2;
+            """, 
             limit, offset
         )
         total = await conn.fetchval("SELECT COUNT(*) FROM faces;")
     
-    # Encode images to base64
+    def calculate_age(dob):
+        today = datetime.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return age
+    
     faces = [
         {
             "face_id": row["face_id"],
+            "age": calculate_age(row["dob"]),
+            "gender": row["gender"],
+            "date": row["date"],
+            "time": row["time"],
             "image_base64": base64.b64encode(row["image"]).decode("utf-8")
         }
         for row in rows
@@ -167,12 +209,39 @@ async def view_enrolled_faces(page: int = 1, limit: int = 10):
 
 @app.get("/view_enrolled_face/{face_id}")
 async def view_enrolled_face(face_id: str):
+    """
+    Retrieve detailed information about an enrolled face by face_id, including age.
+    """
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT image FROM faces WHERE face_id = $1;", face_id)
+        row = await conn.fetchrow(
+            """
+            SELECT image, dob, gender, date, time
+            FROM faces
+            WHERE face_id = $1;
+            """, 
+            face_id
+        )
         if not row:
             return {"error": f"Face with ID '{face_id}' not found."}
-        image_base64 = base64.b64encode(row["image"]).decode("utf-8")
-        return {"face_id": face_id, "image_base64": image_base64}
+
+    # Calculate age from dob
+    def calculate_age(dob):
+        today = datetime.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        return age
+
+    age = calculate_age(row["dob"])
+    image_base64 = base64.b64encode(row["image"]).decode("utf-8")
+    
+    return {
+        "face_id": face_id,
+        "age": age,
+        "gender": row["gender"],
+        "enrolled_date": row["date"],
+        "enrolled_time": row["time"],
+        "image_base64": image_base64
+    }
+
 
 @app.delete("/delete_face/{face_id}")
 async def delete_face(face_id: str):
@@ -186,44 +255,97 @@ async def delete_face(face_id: str):
 
 @app.post("/search_face")
 async def search_face(file: UploadFile = File(...)):
+    """
+    Search for a face in the database.
+    - `file`: An uploaded image file to search for.
+    """
     content = await file.read()
     image = convert_byte_to_numpy(content)
     face, has_face = detect_face(image)
     if not has_face:
         await log_action("search", "error")
         return {"error": "No valid face detected or multiple faces found."}
-    
-    features = extract_features(image, face)
+
+    # Extract features of the face
+    features = recognizer.infer(image, face)
+
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT face_id, features FROM faces;")
+        rows = await conn.fetch("SELECT face_id, features, dob, gender, image FROM faces;")
         for row in rows:
             stored_features = np.frombuffer(row["features"], dtype=np.float32)
             match_list, conf_list = recognizer.n_match_norml2(features, stored_features)
             index = np.argmax(match_list)
+
             if match_list[index]:
+                # Calculate the age
+                dob = row["dob"]
+                today = datetime.today()
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                
                 await log_action("search", "matched")
-                return {"matched_face_id": row["face_id"], "confidence": conf_list[index]*100}
+                image_base64 = base64.b64encode(row["image"]).decode("utf-8")
+                return {
+                    "matched_face_id": row["face_id"],
+                    "age": age,
+                    "gender": row["gender"],
+                    "confidence": conf_list[index] * 100,
+                    "image_base64": image_base64
+                }
+
+        # If no match is found
         await log_action("search", "not matched")
         return {"message": "No match found."}
 
+
 @app.post("/verify_faces")
 async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(...)):
+    """
+    Verify if two uploaded faces match.
+    - `file1`: First image file.
+    - `file2`: Second image file.
+    """
     content1 = await file1.read()
     content2 = await file2.read()
     image1 = convert_byte_to_numpy(content1)
     image2 = convert_byte_to_numpy(content2)
+    
+    # Detect faces in both images
     face1, has_face1 = detect_face(image1)
     face2, has_face2 = detect_face(image2)
     if not (has_face1 and has_face2):
         await log_action("verify", "error")
         return {"error": "Both images must contain exactly one valid face."}
     
+    # Crop the detected faces
+    def crop_face(image, face):
+        x, y, w, h = face[:4].astype(int)
+        return image[y:y+h, x:x+w]
+
+    cropped_face1 = crop_face(image1, face1)
+    cropped_face2 = crop_face(image2, face2)
+    
+    # Extract features for matching
     features1 = extract_features(image1, face1)
     features2 = extract_features(image2, face2)
     score, matched = recognizer.match(image1, face1, image2, face2)
     status = "matched" if matched else "not matched"
+
+    # Encode cropped faces to base64
+    _, buffer1 = cv.imencode('.jpg', cropped_face1)
+    _, buffer2 = cv.imencode('.jpg', cropped_face2)
+    cropped_face1_base64 = base64.b64encode(buffer1).decode('utf-8')
+    cropped_face2_base64 = base64.b64encode(buffer2).decode('utf-8')
+
+    # Log the action
     await log_action("verify", status)
-    return {"matched": matched, "confidence": score*100}
+    
+    return {
+        "matched": matched,
+        "confidence": score * 100,
+        "cropped_face1_base64": f"data:image/jpeg;base64,{cropped_face1_base64}",
+        "cropped_face2_base64": f"data:image/jpeg;base64,{cropped_face2_base64}"
+    }
+
 
 @app.get("/logs")
 async def get_logs(page: int = 1, limit: int = 10):
@@ -296,6 +418,27 @@ async def actions_over_time():
     data = [{"date": str(row["date"]), "count": row["count"]} for row in rows]
     return {"actions_over_time": data}
 
+@app.get("/logs/count_by_date")
+async def count_logs_by_date(date: str):
+    """
+    Retrieve the count of logs for a specific date.
+    - `date`: The date in the format `YYYY-MM-DD`.
+    """
+    try:
+        # Validate date format
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return {"error": "Invalid date format. Please use YYYY-MM-DD."}
+
+    async with pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM logs WHERE date = $1;", 
+            date
+        )
+    return {
+        "date": date,
+        "total_logs": count
+    }
 
 
 if __name__ == "__main__":
